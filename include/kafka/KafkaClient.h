@@ -19,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string.h>
 #include <thread>
 
 
@@ -106,7 +107,7 @@ public:
      */
     Optional<BrokerMetadata> fetchBrokerMetadata(const std::string& topic,
                                                  std::chrono::milliseconds timeout = std::chrono::milliseconds(DEFAULT_METADATA_TIMEOUT_MS),
-                                                 bool disableErrorLogging = false);
+                                                 bool disableErrorLogging = false, bool allTopics = false);
 
     template<class ...Args>
     void doLog(int level, const char* filename, int lineno, const char* format, Args... args) const
@@ -459,13 +460,13 @@ KafkaClient::statsCallback(rd_kafka_t* rk, char* jsonStrBuf, size_t jsonStrLen, 
 }
 
 inline Optional<BrokerMetadata>
-KafkaClient::fetchBrokerMetadata(const std::string& topic, std::chrono::milliseconds timeout, bool disableErrorLogging)
+KafkaClient::fetchBrokerMetadata(const std::string& topic, std::chrono::milliseconds timeout, bool disableErrorLogging, bool allTopics)
 {
     Optional<BrokerMetadata> ret;
     auto rkt = rd_kafka_topic_unique_ptr(rd_kafka_topic_new(getClientHandle(), topic.c_str(), nullptr));
 
     const rd_kafka_metadata_t* rk_metadata = nullptr;
-    rd_kafka_resp_err_t err = rd_kafka_metadata(getClientHandle(), false, rkt.get(), &rk_metadata, convertMsDurationToInt(timeout));
+    rd_kafka_resp_err_t err = rd_kafka_metadata(getClientHandle(), allTopics, allTopics ? nullptr : rkt.get(), &rk_metadata, convertMsDurationToInt(timeout));
     auto guard = rd_kafka_metadata_unique_ptr(rk_metadata);
 
     if (err != RD_KAFKA_RESP_ERR_NO_ERROR)
@@ -477,7 +478,16 @@ KafkaClient::fetchBrokerMetadata(const std::string& topic, std::chrono::millisec
         return ret;
     }
 
-    if (rk_metadata->topic_cnt != 1)
+    rd_kafka_metadata_topic *specified_topic = nullptr;
+    for (auto i = 0; i < rk_metadata->topic_cnt; ++i)
+    {
+        if (strcmp(rk_metadata->topics[i].topic, topic.c_str()) == 0)
+        {
+            specified_topic = &rk_metadata->topics[i];
+        }
+    }
+
+    if (!allTopics && rk_metadata->topic_cnt != 1 || allTopics && !specified_topic)
     {
         if (!disableErrorLogging)
         {
@@ -486,7 +496,7 @@ KafkaClient::fetchBrokerMetadata(const std::string& topic, std::chrono::millisec
         return ret;
     }
 
-    const rd_kafka_metadata_topic& metadata_topic = rk_metadata->topics[0];
+    const rd_kafka_metadata_topic& metadata_topic = *specified_topic;
     if (metadata_topic.err != 0)
     {
         if (!disableErrorLogging)
