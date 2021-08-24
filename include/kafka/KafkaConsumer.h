@@ -584,7 +584,7 @@ KafkaConsumer::committed(const TopicPartition& tp)
 {
     auto rk_tps = rd_kafka_topic_partition_list_unique_ptr(createRkTopicPartitionList({tp}));
 
-    rd_kafka_resp_err_t err = rd_kafka_committed(getClientHandle(), rk_tps.get(), TIMEOUT_INFINITE);
+    rd_kafka_resp_err_t err = rd_kafka_committed(getClientHandle(), rk_tps.get(), DEFAULT_QUERY_TIMEOUT_MS);
     KAFKA_THROW_IF_WITH_RESP_ERROR(err);
 
     return rk_tps->elems[0].offset;
